@@ -61,14 +61,35 @@
 //     dbg!(&get_number);
 // }
 // use rustProject::Summary;
-use rustProject::{self, Summary, Tweet};
+// use rustProject::{self, Summary, Tweet};
+
+// fn main() {
+//     let tweet = Tweet {
+//         username: String::from("horse_ebook"),
+//         content: String::from("of course, as you probably already know, people"),
+//         reply: false,
+//         retweet: false,
+//     };
+//     println!("1 則推文：{}", tweet.summarize());
+// }
+
+use std::thread;
+use std::time::Duration;
 
 fn main() {
-    let tweet = Tweet {
-        username: String::from("horse_ebook"),
-        content: String::from("of course, as you probably already know, people"),
-        reply: false,
-        retweet: false,
-    };
-    println!("1 則推文：{}", tweet.summarize());
+    let handle = thread::spawn(|| {
+        for i in 1..10 {
+            println!("數字 {} 出現產生的執行緒中！", i);
+            thread::sleep(Duration::from_millis(1));
+        }
+    });
+
+    for i in 1..5 {
+        println!("數字 {} 出現產生的執行緒中！", i);
+        thread::sleep(Duration::from_millis(1));
+    }
+
+    handle.join().unwrap();
 }
+
+
