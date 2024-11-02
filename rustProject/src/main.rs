@@ -1,95 +1,94 @@
-// use rand::Rng;
-// use std::io;
-
-// #[derive(Debug)]
-// struct GetNumberStruct<T> {
-//     nums: Vec<T>,
-//     left: T,
-//     right: T,
-// }
-
-// impl<T: PartialOrd + Copy + rand::distributions::uniform::SampleUniform> GetNumberStruct<T> {
-//     fn construct(nums: Vec<T>, left: T, right: T) -> Self {
-//         Self { nums, left, right }
-//     }
-
-//     fn lotton_number(&mut self) {
-//         let mut rng = rand::thread_rng();
-//         let mut flag;
-//         let mut count = 0;
-
-//         while count < self.nums.len() {
-//             let temp = rng.gen_range(self.left..=self.right);
-//             flag = false;
-
-//             for index2 in 0..count {
-//                 if temp == self.nums[index2] {
-//                     flag = true;
-//                     break;
-//                 }
-//             }
-
-//             if !flag {
-//                 self.nums[count] = temp;
-//                 count += 1;
-//             }
-//         }
-//     }
-// }
-
-// fn main() {
-//     let mut count = String::new();
-//     let mut left = String::new();
-//     let mut right = String::new();
-
-//     println!("Please enter count:");
-//     io::stdin().read_line(&mut count).expect("Error reading input");
-
-//     println!("Please enter left bound:");
-//     io::stdin().read_line(&mut left).expect("Error reading input");
-
-//     println!("Please enter right bound:");
-//     io::stdin().read_line(&mut right).expect("Error reading input");
-
-//     let n: usize = count.trim().parse().expect("Error parsing count");
-//     let l: f64 = left.trim().parse().expect("Error parsing left bound");
-//     let r: f64 = right.trim().parse().expect("Error parsing right bound");
-
-//     let mut get_number = GetNumberStruct::construct(vec![-1.0; n], l, r);
-
-//     get_number.lotton_number();
-//     dbg!(&get_number);
-// }
-// use rustProject::Summary;
-// use rustProject::{self, Summary, Tweet};
-
-// fn main() {
-//     let tweet = Tweet {
-//         username: String::from("horse_ebook"),
-//         content: String::from("of course, as you probably already know, people"),
-//         reply: false,
-//         retweet: false,
-//     };
-//     println!("1 則推文：{}", tweet.summarize());
-// }
-
+use std::sync::{Arc, Mutex};
 use std::thread;
+use std::sync::mpsc::{self, Sender, Receiver};
 use std::time::Duration;
 
-fn main() {
-    let handle = thread::spawn(|| {
-        for i in 1..10 {
-            println!("數字 {} 出現產生的執行緒中！", i);
-            thread::sleep(Duration::from_millis(1));
-        }
-    });
-
-    for i in 1..5 {
-        println!("數字 {} 出現產生的執行緒中！", i);
-        thread::sleep(Duration::from_millis(1));
-    }
-
-    handle.join().unwrap();
+struct Runner {
+    lane: usize,
+    runner_number: usize,
 }
 
+impl Runner {
+    fn run(&self, baton_sender: Option<Sender<String>>, baton_receiver: Option<Receiver<String>>) {
+        if let Some(receiver) = baton_receiver {
+            receiver.recv().expect("接力棒傳遞失敗");
+        }
+        
+        println!("跑道 {} 的跑者 {} 開始跑步！", self.lane, self.runner_number);
+        thread::sleep(Duration::from_millis(500));
+        
+        if let Some(sender) = baton_sender {
+            sender.send("接力棒".to_string()).expect("接力棒傳遞失敗");
+        }
+        
+        println!("跑道 {} 的跑者 {} 完成接力！", self.lane, self.runner_number);
+    }
+}
 
+struct Referee {
+    winner: Arc<Mutex<Option<usize>>>,
+}
+
+impl Referee {
+    fn monitor(&self, rx: Receiver<usize>, total_lanes: usize) {
+        let mut completed = 0;
+        
+        for lane in rx {
+            let mut winner = self.winner.lock().unwrap();
+            if winner.is_none() {
+                *winner = Some(lane);
+                println!("🏆 跑道 {} 獲勝！", lane);
+            }
+            completed += 1;
+            
+            // 當所有跑道完成後結束監控
+            if completed == total_lanes {
+                println!("比賽結束！");
+                break;
+            }
+        }
+    }
+}
+
+fn main() {
+    let total_lanes = 10;
+    let mut threads = vec![];
+    let winner = Arc::new(Mutex::new(None));
+    let (tx, rx) = mpsc::channel();
+    
+    for lane in 1..=total_lanes {
+        let (tx1, rx1) = mpsc::channel();
+        let (tx2, rx2) = mpsc::channel();
+        
+        let runner1 = Runner { lane, runner_number: 1 };
+        let runner2 = Runner { lane, runner_number: 2 };
+        let runner3 = Runner { lane, runner_number: 3 };
+        
+        let tx_done = tx.clone();
+        
+        threads.push(thread::spawn(move || {
+            runner1.run(Some(tx1.clone()), None);
+            runner2.run(Some(tx2.clone()), Some(rx1));
+            runner3.run(None, Some(rx2));
+            
+            // 通知裁判此跑道完成
+            tx_done.send(lane).expect("無法通知裁判此跑道完成");
+        }));
+    }
+    
+    let referee = Referee {
+        winner: Arc::clone(&winner),
+    };
+    
+    // 啟動裁判監控執行緒
+    let referee_thread = thread::spawn(move || {
+        referee.monitor(rx, total_lanes);
+    });
+    
+    for thread in threads {
+        thread.join().expect("執行緒加入失敗");
+    }
+    
+    // 等待裁判執行緒結束
+    referee_thread.join().expect("裁判執行緒加入失敗");
+}
